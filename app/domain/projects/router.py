@@ -11,14 +11,15 @@ from uuid import UUID
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
-@router.post("/upload", response_model=ProjectSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/upload", response_model=list[ProjectSchema], status_code=status.HTTP_201_CREATED)
 async def upload_projects_excel(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Recebe uma planilha Excel (.xlsx ou .xls), extrai os projetos, atividades e prazos,
-    salva-os no banco de dados e retorna o projeto com as atividades extraídas.
+    Recebe uma planilha Excel (.xlsx ou .xls), varre todas as abas (worksheets),
+    cria/atualiza um projeto para cada aba e salva suas respectivas atividades no banco de dados.
+    Retorna a lista de todos os projetos criados/atualizados com suas atividades.
     """
     if not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(
@@ -26,18 +27,15 @@ async def upload_projects_excel(
             detail="Apenas arquivos Excel (.xlsx ou .xls) são suportados."
         )
         
-    parsed_data = parse_excel_projects(file)
-    if not parsed_data:
+    parsed_projects = parse_excel_projects(file)
+    if not parsed_projects:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nenhum dado pôde ser extraído da planilha."
+            detail="Nenhum dado de projeto ou atividade pôde ser extraído da planilha. Verifique as colunas das abas."
         )
         
-    # Extrair o nome do projeto a partir do nome do arquivo (sem extensão)
-    project_name = file.filename.rsplit(".", 1)[0]
-    
-    saved_project = await save_extracted_data(db, project_name, parsed_data)
-    return saved_project
+    saved_projects = await save_extracted_data(db, parsed_projects)
+    return saved_projects
 
 @router.get("", response_model=list[ProjectSchema])
 async def list_projects(db: AsyncSession = Depends(get_db)):
